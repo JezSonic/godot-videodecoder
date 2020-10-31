@@ -32,6 +32,8 @@ for p in "${PLATFORM_LIST[@]}"; do
     PLATMAP[$p]=1
 done
 
+echo "Building for ${PLATFORM_LIST[@]}"
+
 plat_win64=${PLATMAP['win64']}
 plat_osx=${PLATMAP['osx']}
 plat_x11=${PLATMAP['x11']}
@@ -78,12 +80,15 @@ fi
 # bionic is for cross compiles, use xenial for linux
 # (for ubuntu 16 compatibility even though it's outdated already)
 if [ $plat_osx ]; then
+    echo "Building for OSX"
     docker build ./ -f Dockerfile.osx --build-arg JOBS=$JOBS -t "godot-videodecoder-osx"
 fi
 if [ $plat_x11 ]; then
+    echo "Building for X11"
     docker build ./ -f Dockerfile.x11 --build-arg JOBS=$JOBS -t "godot-videodecoder-x11"
 fi
 if [ $plat_win64 ]; then
+    echo "Building for Win64"
     docker build ./ -f Dockerfile.win64 --build-arg JOBS=$JOBS -t "godot-videodecoder-win64"
 fi
 
