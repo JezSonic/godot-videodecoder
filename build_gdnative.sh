@@ -23,7 +23,8 @@ XCODE_SDK="${XCODE_SDK:-$XCODE_SDK_FOR_COPY}"
 JOBS=${JOBS:-4}
 
 if [ -z "$PLATFORMS" ]; then
-    PLATFORM_LIST=(win64 osx x11 win32 x11_32)
+    # note: x11_32 doesn't seem to build atm? https://github.com/jamie-pate/godot-videodecoder/runs/1356692575?check_suite_focus=true
+    PLATFORM_LIST=(win64 osx x11 win32)
 else
     IFS=',' read -r -a PLATFORM_LIST <<< "$PLATFORMS"
 fi
