@@ -144,7 +144,7 @@ if [ $plat_x11 ]; then
     mkdir -p $THIRDPARTY_DIR/x11
 
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/x11 - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/x11 - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -155,7 +155,7 @@ if [ $plat_x11 ]; then
 
     mkdir -p $THIRDPARTY_DIR/x11
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/x11 - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/x11 - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -166,7 +166,7 @@ if [ $plat_x11_32 ]; then
 
     mkdir -p $THIRDPARTY_DIR/x11_32
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/x11_32 - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/x11_32 - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -177,7 +177,7 @@ if [ $plat_osx ]; then
 
     mkdir -p $THIRDPARTY_DIR/osx
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/osx - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/osx - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -188,7 +188,7 @@ if [ $plat_win64 ]; then
 
     mkdir -p $THIRDPARTY_DIR/win64
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/win64 - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/win64 - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -199,7 +199,7 @@ if [ $plat_win32 ]; then
 
     mkdir -p $THIRDPARTY_DIR/win32
     # tar because copying a symlink on windows will fail if you don't run as administrator
-    docker cp $id:/opt/godot-videodecoder/thirdparty/win32 - | tar -xC $THIRDPARTY_DIR/
+    docker cp -L $id:/opt/godot-videodecoder/thirdparty/win32 - | tar -xC $THIRDPARTY_DIR/
     docker rm -v $id
 fi
 
@@ -207,6 +207,6 @@ if type tree 2> /dev/null; then
     tree $THIRDPARTY_DIR -L 2 -hD
     tree $ADDON_BIN_DIR -hD
 else
-    find $THIRDPARTY_DIR -print -maxdepth 2 -exec ls -lh {} \;
-    find $ADDON_BIN_DIR -print -maxdepth 1 -exec ls -lh {} \;
+    find $THIRDPARTY_DIR -maxdepth 2 -print -exec ls -lh {} \;
+    find $ADDON_BIN_DIR -maxdepth 1 -print -exec ls -lh {} \;
 fi
