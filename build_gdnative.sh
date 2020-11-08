@@ -207,6 +207,6 @@ if type tree 2> /dev/null; then
     tree $THIRDPARTY_DIR -L 2 -hD
     tree $ADDON_BIN_DIR -hD
 else
-    find $THIRDPARTY_DIR -print -maxdepth 2 -exec ls -lh {} \;
-    find $ADDON_BIN_DIR -print -maxdepth 1 -exec ls -lh {} \;
+    find $THIRDPARTY_DIR -maxdepth 2 -print -exec ls -lh {} \;
+    find $ADDON_BIN_DIR -maxdepth 1 -print -exec ls -lh {} \;
 fi
