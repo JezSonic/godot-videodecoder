@@ -368,8 +368,11 @@ static void print_codecs() {
 
 	const AVCodecDescriptor *desc = NULL;
 	unsigned nb_codecs = 0, i = 0;
-
 	char msg[512] = {0};
+	AVHWAccel *hwa;
+	while (hwa = av_hwaccel_next(hwa)) {
+		snprintf(msg, sizeof(msg) - 1, "%s %d", hwa->name, hwa->capabilities);
+	}
 	snprintf(msg, sizeof(msg) - 1, "%s: Supported video codecs:", plugin_name);
 	_godot_print(msg);
 	while ((desc = avcodec_descriptor_next(desc))) {
@@ -378,12 +381,14 @@ static void print_codecs() {
 		bool found = false;
 		while ((codec = av_codec_iterate(&i))) {
 			if (codec->id == desc->id && av_codec_is_decoder(codec)) {
+				bool hwcfg = avcodec_get_hw_config(codec, 0) != NULL;
 				if (!found && avcodec_find_decoder(desc->id) || avcodec_find_encoder(desc->id)) {
 
-					snprintf(msg, sizeof(msg) - 1, "\t%s%s%s",
+					snprintf(msg, sizeof(msg) - 1, "\t%s%s%s%s",
 						avcodec_find_decoder(desc->id) ? "decode " : "",
 						avcodec_find_encoder(desc->id) ? "encode " : "",
-						desc->name
+						desc->name,
+						hwcfg ? " hw" : ""
 					);
 					found = true;
 					_godot_print(msg);
@@ -391,6 +396,21 @@ static void print_codecs() {
 				if (strcmp(codec->name, desc->name) != 0) {
 					snprintf(msg, sizeof(msg) - 1, "\t  codec: %s", codec->name);
 					_godot_print(msg);
+				}
+				size_t idx = 0;
+				const AVCodecHWConfig *hwc;
+				while (hwc = avcodec_get_hw_config(codec, idx)) {
+					snprintf(msg, sizeof(msg) - 1, "\t  hwaccel: %d "
+						"AD_HOC:%d "
+						"HW_DEVICE_CTX:%d"
+						"HW_FRAMES_CTX:%d"
+						"INTERNAL:%d", hwc->device_type,
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_AD_HOC,
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX,
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX,
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_INTERNAL, hwc->pix_fmt);
+					_godot_print(msg);
+					++idx;
 				}
 			}
 		}
