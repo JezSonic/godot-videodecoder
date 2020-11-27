@@ -12,6 +12,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
+#include <libavutil/pixfmt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libswresample/swresample.h>
@@ -37,11 +38,13 @@ typedef struct videodecoder_data_struct {
 	AVCodecContext *vcodec_ctx;
 	AVFrame *frame_yuv;
 	AVFrame *frame_rgb;
+	AVFrame *frame_hw;
 
 	struct SwsContext *sws_ctx;
 	uint8_t *frame_buffer;
 
 	int videostream_idx;
+	enum AVPixelFormat hw_pix_fmt;
 	int frame_buffer_size;
 	godot_pool_byte_array unwrapped_frame;
 	godot_real time;
@@ -215,6 +218,11 @@ static void _cleanup(videodecoder_data_struct *data) {
 		data->frame_yuv = NULL;
 	}
 
+	if (data->frame_hw != NULL) {
+		av_frame_unref(data->frame_hw);
+		data->frame_hw = NULL;
+	}
+
 	if (data->frame_buffer != NULL) {
 		api->godot_free(data->frame_buffer);
 		data->frame_buffer = NULL;
@@ -225,6 +233,10 @@ static void _cleanup(videodecoder_data_struct *data) {
 		if (data->vcodec_open) {
 			avcodec_close(data->vcodec_ctx);
 			data->vcodec_open = GODOT_FALSE;
+		}
+		if (data->vcodec_ctx->hw_device_ctx != NULL) {
+			av_buffer_unref(&data->vcodec_ctx->hw_device_ctx);
+			data->vcodec_ctx->hw_device_ctx = NULL;
 		}
 		avcodec_free_context(&data->vcodec_ctx);
 		data->vcodec_ctx = NULL;
@@ -379,7 +391,6 @@ static void print_codecs() {
 		while ((codec = av_codec_iterate(&i))) {
 			if (codec->id == desc->id && av_codec_is_decoder(codec)) {
 				if (!found && avcodec_find_decoder(desc->id) || avcodec_find_encoder(desc->id)) {
-
 					snprintf(msg, sizeof(msg) - 1, "\t%s%s%s",
 						avcodec_find_decoder(desc->id) ? "decode " : "",
 						avcodec_find_encoder(desc->id) ? "encode " : "",
@@ -387,6 +398,19 @@ static void print_codecs() {
 					);
 					found = true;
 					_godot_print(msg);
+				}
+				int idx = 0;
+				const AVCodecHWConfig *hwc = avcodec_get_hw_config(codec, idx++);
+				while (hwc) {
+					snprintf(msg, sizeof(msg), "\thwaccel: %s %s%s%s%s",
+						av_hwdevice_get_type_name(hwc->device_type),
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_AD_HOC ? "adhoc " : "",
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX ? "hw_device_ctx " : "",
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_FRAMES_CTX ? "hw_frames_ctx " : "",
+						hwc->methods & AV_CODEC_HW_CONFIG_METHOD_INTERNAL ? "internal" : ""
+					);
+					_godot_print(msg);
+					hwc = avcodec_get_hw_config(codec, idx++);
 				}
 				if (strcmp(codec->name, desc->name) != 0) {
 					snprintf(msg, sizeof(msg) - 1, "\t  codec: %s", codec->name);
@@ -455,6 +479,7 @@ void *godot_videodecoder_constructor(godot_object *p_instance) {
 
 	data->frame_rgb = NULL;
 	data->frame_yuv = NULL;
+	data->frame_hw = NULL;
 	data->sws_ctx = NULL;
 
 	data->frame_buffer = NULL;
@@ -513,6 +538,20 @@ const char **godot_videodecoder_get_supported_ext(int *p_count) {
 
 const char *godot_videodecoder_get_plugin_name(void) {
 	return plugin_name;
+}
+
+static int hw_decoder_init(AVCodecContext *ctx, const enum AVHWDeviceType type)
+{
+    int err = 0;
+	AVBufferRef *hw_device_ctx = NULL;
+    if ((err = av_hwdevice_ctx_create(&hw_device_ctx, type,
+                                      NULL, NULL, 0)) < 0) {
+        fprintf(stderr, "Failed to create specified HW device.\n");
+        return err;
+    }
+    ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+
+    return err;
 }
 
 godot_bool godot_videodecoder_open_file(void *p_data, void *file) {
@@ -620,6 +659,40 @@ godot_bool godot_videodecoder_open_file(void *p_data, void *file) {
 		return GODOT_FALSE;
 	}
 
+	const AVCodecHWConfig *hwc = NULL;
+	int hwc_idx = 0;
+	enum AVPixelFormat hw_xfr_pix_fmt = AV_PIX_FMT_NONE;
+	do {
+		hwc = avcodec_get_hw_config(vcodec, hwc_idx);
+		if (hwc && hwc->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX) {
+			if (hw_decoder_init(data->vcodec_ctx, hwc->device_type) >= 0) {
+				char msg[512] = {0};
+				enum AVPixelFormat *formats = NULL;
+				int ret;
+				if ((ret = av_hwframe_transfer_get_formats(data->vcodec_ctx->hw_device_ctx, AV_HWFRAME_TRANSFER_DIRECTION_FROM, &formats, 0)) < 0) {
+					_cleanup(data);
+					api->godot_print_warning("Videocodec context, xfer pix fmts error.", "godot_videodecoder_open_file()", __FILE__, __LINE__);
+					return GODOT_FALSE;
+				}
+				switch (hwc->device_type) {
+					// This should use av_hwframe_transfer_get_formats() instead of hardcoding AV_PIX_FMT_NV12 but it doesn't seem valid until
+					// you've transfered at least 1 frame using av_hwframe_transfer_data !
+					case AV_HWDEVICE_TYPE_DXVA2:
+					case AV_HWDEVICE_TYPE_D3D11VA:
+						hw_xfr_pix_fmt = AV_PIX_FMT_NV12;
+						break;
+					default:
+						hw_xfr_pix_fmt = formats[0];
+				}
+				av_freep(&formats);
+				snprintf(msg, sizeof(msg), "accelerated by %s", av_hwdevice_get_type_name(hwc->device_type));
+				_godot_print(msg);
+				data->hw_pix_fmt = hwc->pix_fmt;
+				break;
+			}
+		}
+	} while (hwc);
+
 	if (avcodec_parameters_to_context(data->vcodec_ctx, vcodec_param) < 0) {
 		_cleanup(data);
 		api->godot_print_warning("Videocodec context init error.", "godot_videodecoder_open_file()", __FILE__, __LINE__);
@@ -719,6 +792,15 @@ godot_bool godot_videodecoder_open_file(void *p_data, void *file) {
 		return GODOT_FALSE;
 	}
 
+	if (data->vcodec_ctx->hw_device_ctx) {
+		data->frame_hw = av_frame_alloc();
+		if (data->frame_hw == NULL) {
+			_cleanup(data);
+			api->godot_print_error("Frame alloc fail.", "godot_videodecoder_open_file()", __FILE__, __LINE__);
+			return GODOT_FALSE;
+		}
+	}
+
 	int width = data->vcodec_ctx->width;
 	int height = data->vcodec_ctx->height;
 	if (av_image_fill_arrays(data->frame_rgb->data, data->frame_rgb->linesize, data->frame_buffer,
@@ -727,8 +809,8 @@ godot_bool godot_videodecoder_open_file(void *p_data, void *file) {
 		api->godot_print_error("Frame fill.", "godot_videodecoder_open_file()", __FILE__, __LINE__);
 		return GODOT_FALSE;
 	}
-
-	data->sws_ctx = sws_getContext(width, height, data->vcodec_ctx->pix_fmt,
+	
+	data->sws_ctx = sws_getContext(width, height, data->frame_hw ? hw_xfr_pix_fmt : data->vcodec_ctx->pix_fmt,
 			width, height, AV_PIX_FMT_RGB0, SWS_BILINEAR,
 			NULL, NULL, NULL);
 	if (data->sws_ctx == NULL) {
@@ -808,12 +890,13 @@ godot_pool_byte_array *godot_videodecoder_get_videoframe(void *p_data) {
 	// to maintain a decent game frame rate
 	// don't let frame decoding take more than this number of ms
 	uint64_t max_frame_drop_time = 5;
-	// but we do need to drop frames, so try to drop at least some frames even if it's a bit slow :(
+	// but we do need to decode frames, so try to decode at least some frames even if it's a bit slow :(
 	size_t min_frame_drop_count = 5;
+	// decode a frame if we drop too many and we haven't decoded any yet.
+	size_t max_frame_drop_count = 120;
 	uint64_t start = get_ticks_msec();
-
 retry:
-	ret = avcodec_receive_frame(data->vcodec_ctx, data->frame_yuv);
+	ret = avcodec_receive_frame(data->vcodec_ctx, data->frame_hw ? data->frame_hw : data->frame_yuv);
 	if (ret == AVERROR(EAGAIN)) {
 		// need to call avcodedc_send_packet, get a packet from queue to send it
 		while (!packet_queue_get(data->video_packet_queue, &pkt)) {
@@ -843,7 +926,38 @@ retry:
 		PROFILE_END;
 		return NULL;
 	}
+ 	if (data->frame_hw) {
+		/* retrieve data from GPU to CPU */
+		
+		if ((ret = av_hwframe_transfer_data(data->frame_yuv, data->frame_hw, 0)) < 0) {
+			char msg[512] = {0};
+			char buf[512] = {0};
+			av_strerror(ret, buf, sizeof(buf) -1);
+			snprintf(msg, sizeof(msg) - 1, "Error transferring the data to system memory %s", buf);
+			api->godot_print_error(msg, "godot_videodecoder_get_videoframe()", __FILE__, __LINE__);
+			PROFILE_END;
+			return NULL;
+		}
+		// int size = av_image_get_buffer_size(data->frame_hw->format, data->frame_hw->width,
+		// 	data->frame_hw->height, 1);
+		// uint8_t *buffer = av_malloc(size);
+		// if ((ret = av_image_copy_to_buffer(buffer, size,
+		// 		(const uint8_t * const *)&data->frame_yuv->data,
+		// 		(const int *)&data->frame_hw->linesize, (enum AVPixelFormat)data->frame_hw->format,
+		// 		data->frame_hw->width, data->frame_hw->height, 1)) < 0) {
+		// 	char msg[512] = {0};
+		// 	snprintf(msg, sizeof(msg) - 1, "Error copying the data to buffer %d", ret);
+		// 	api->godot_print_error(msg, "godot_videodecoder_get_videoframe()", __FILE__, __LINE__);
+		// 	PROFILE_END;
+			
+		// 	av_freep(&buffer);
+		// 	return NULL;
+	 	// }
+		 
+		// av_freep(&buffer);
+		// ret = av_image_fill_arrays(dstData, dstLinesize, buffer, convertToPixFmt, dest_width, dest_height, 1);
 
+	}
 	bool pts_correct = data->frame_yuv->pts == AV_NOPTS_VALUE;
 	int64_t pts = pts_correct ? data->frame_yuv->pkt_dts : data->frame_yuv->pts;
 
@@ -854,8 +968,9 @@ retry:
 	// frame successfully decoded here, now if it lags behind too much (diff_tolerance sec)
 	// let's discard this frame and get the next frame instead
 	bool drop = ts < data->time - data->diff_tolerance;
+	drop = drop && (drop_count < min_frame_drop_count && !data->frame_unwrapped || drop_count > max_frame_drop_count);
 	uint64_t drop_duration = get_ticks_msec() - start;
-	if (drop && drop_duration > max_frame_drop_time && drop_count < min_frame_drop_count && data->frame_unwrapped) {
+	if (drop && drop_duration > max_frame_drop_time) {
 		// only discard frames for max_frame_drop_time ms or we'll slow down the game's main thread!
 		if (fabs(data->seek_time - data->time) > data->diff_tolerance * 10) {
 			char msg[512];
@@ -881,8 +996,20 @@ retry:
 		// NOTE: VideoPlayer currently doesnt' ask for a frame when seeking while paused so you'd
 		// have to fake it inside godot by unpausing briefly. (see FIG1 below)
 		data->frame_unwrapped = true;
-		sws_scale(data->sws_ctx, (uint8_t const *const *)data->frame_yuv->data, data->frame_yuv->linesize, 0,
+		ret = sws_scale(data->sws_ctx, (uint8_t const *const *)data->frame_yuv->data, data->frame_yuv->linesize, 0,
 				data->vcodec_ctx->height, data->frame_rgb->data, data->frame_rgb->linesize);
+		if (ret < 0) {
+			char msg[512] = {0};
+			char err[512] = {0};
+			av_strerror(ret, err, sizeof(err) - 1);
+			const char *yuv_fmt = av_get_pix_fmt_name(data->frame_yuv->format);
+			const char *hw_fmt = av_get_pix_fmt_name(data->frame_hw->format);
+			const char *rgb_fmt = av_get_pix_fmt_name(data->frame_rgb->format);
+			snprintf(msg, sizeof(msg) - 1, "Error running sws_scale %s hw:%s sw: %s -> %s", err, hw_fmt, yuv_fmt, rgb_fmt);
+			api->godot_print_error(msg, "godot_videodecoder_get_videoframe()", __FILE__, __LINE__);
+			PROFILE_END;
+			return NULL;
+		}
 		_unwrap_video_frame(&data->unwrapped_frame, data->frame_rgb, data->vcodec_ctx->width, data->vcodec_ctx->height);
 	}
 	av_packet_unref(&pkt);
