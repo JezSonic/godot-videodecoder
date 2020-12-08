@@ -380,7 +380,12 @@ static void print_codecs() {
 
 	const AVCodecDescriptor *desc = NULL;
 	unsigned nb_codecs = 0, i = 0;
+	enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
 
+	_godot_print("Hardware acceleration methods:");
+	while ((type = av_hwdevice_iterate_types(type)) != AV_HWDEVICE_TYPE_NONE) {
+		_godot_print(av_hwdevice_get_type_name(type));
+	}
 	char msg[512] = {0};
 	snprintf(msg, sizeof(msg) - 1, "%s: Supported video codecs:", plugin_name);
 	_godot_print(msg);
