@@ -1,4 +1,5 @@
 bin/*
 thirdparty/*
 test
-
+.sconsign.dblite
+ffmpeg-static/build

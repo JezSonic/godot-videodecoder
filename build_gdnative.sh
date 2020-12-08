@@ -21,7 +21,9 @@ THIRDPARTY_DIR=${THIRDPARTY_DIR:-$DIR/thirdparty}
 XCODE_SDK_FOR_COPY=./darwin_sdk/MacOSX10.11.sdk.tar.xz
 XCODE_SDK="${XCODE_SDK:-$XCODE_SDK_FOR_COPY}"
 # set FF_ENABLE=everything to make a 14MiB build with all the LGPL features
-FF_ENABLE="vp8 vp9 opus vorbis"
+FF_ENABLE=${FF_ENABLE:-"vp8 vp9 opus vorbis"}
+# set FF_BUILD_FLAGS=-s for debug symbols, etc
+FF_BUILD_FLAGS=${FF_BUILD_FLAGS:-}
 
 SUBMODULES_OK=1
 if ! [ -f "$DIR/godot_include/gdnative_api_struct.gen.h" ]; then
@@ -79,6 +81,8 @@ if ! [ "$JOBS" ]; then
 fi
 echo "Using JOBS=$JOBS"
 
+build_args=(--build-arg JOBS=$JOBS --build-arg FF_ENABLE="$FF_ENABLE" --build-arg FF_BUILD_FLAGS="$FF_BUILD_FLAGS")
+
 #img_version="$(git describe 2>/dev/null || git rev-parse HEAD)"
 # TODO : pass in img_version like https://github.com/godotengine/build-containers/blob/master/Dockerfile.osx#L1
 
@@ -106,7 +110,7 @@ fi
 if [ $plat_osx ]; then
     echo "building with xcode sdk"
     docker build ./ -f Dockerfile.ubuntu-bionic -t "godot-videodecoder-ubuntu-bionic" \
-    --build-arg XCODE_SDK=$XCODE_SDK
+        --build-arg XCODE_SDK=$XCODE_SDK
 elif [ $plat_win_any ]; then
     echo "building without xcode sdk"
     docker build ./ -f Dockerfile.ubuntu-bionic -t "godot-videodecoder-ubuntu-bionic"
@@ -114,21 +118,22 @@ fi
 
 if [ $plat_osx ]; then
     echo "Building for OSX"
-    docker build ./ -f Dockerfile.osx --build-arg JOBS=$JOBS -t "godot-videodecoder-osx"
+    docker build ./ -f Dockerfile.osx "${build_args[@]} ""godot-videodecoder-osx"
 fi
 if [ $plat_x11 ]; then
     echo "Building for X11"
-    docker build ./ -f Dockerfile.x11 --build-arg JOBS=$JOBS -t "godot-videodecoder-x11"
+    set -x
+    docker build ./ -f Dockerfile.x11 "${build_args[@]}" -t "godot-videodecoder-x11"
 fi
 if [ $plat_x11_32 ]; then
-    docker build ./ -f Dockerfile.x11_32 --build-arg JOBS=$JOBS -t "godot-videodecoder-x11_32"
+    docker build ./ -f Dockerfile.x11_32 "${build_args[@]}" -t "godot-videodecoder-x11_32"
 fi
 if [ $plat_win64 ]; then
     echo "Building for Win64"
-    docker build ./ -f Dockerfile.win64 --build-arg JOBS=$JOBS -t "godot-videodecoder-win64"
+    docker build ./ -f Dockerfile.win64 "${build_args[@]}" -t "godot-videodecoder-win64"
 fi
 if [ $plat_win32 ]; then
-    docker build ./ -f Dockerfile.win32 --build-arg JOBS=$JOBS -t "godot-videodecoder-win32"
+    docker build ./ -f Dockerfile.win32 "${build_args[@]}" -t "godot-videodecoder-win32"
 fi
 
 set -x
