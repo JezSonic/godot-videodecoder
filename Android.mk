@@ -31,6 +31,6 @@ include $(PREBUILT_SHARED_LIBRARY)
 
 LOCAL_MODULE := "godot-videodecoder"
 LOCAL_SHARED_LIBRARIES := avcodec avdevice avfilter avformat swresample swscale avutil
-LOCAL_C_INCLUDES := godot_include
+LOCAL_C_INCLUDES := godot_include prebuilts/include
 LOCAL_SRC_FILES := src/gdnative_videodecoder.c
 include $(BUILD_SHARED_LIBRARY)
