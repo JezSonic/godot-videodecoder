@@ -30,6 +30,7 @@ LOCAL_SRC_FILES := prebuilts/$(TARGET_ARCH_ABI)/libavutil.so
 include $(PREBUILT_SHARED_LIBRARY)
 
 LOCAL_MODULE := "godot-videodecoder"
+LOCAL_ALLOW_UNDEFINED_SYMBOLS=true
 LOCAL_SHARED_LIBRARIES := avcodec avdevice avfilter avformat swresample swscale avutil
 LOCAL_C_INCLUDES := godot_include prebuilts/include
 LOCAL_SRC_FILES := src/gdnative_videodecoder.c
