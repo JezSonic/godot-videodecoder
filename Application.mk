@@ -1,1 +1,1 @@
-AP_ABI := all
+APP_ABI := all
